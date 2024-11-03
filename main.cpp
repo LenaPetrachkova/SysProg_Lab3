@@ -3,7 +3,6 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
-#include <cstring>
 #include <sstream>
 #include <regex>
 
@@ -25,31 +24,21 @@ bool isHexadecimal(const string& token) {
 }
 
 bool isFloatingPoint(const string& token) {
-    regex float_regex("[-+]?[0-9]*\\.[0-9]+([eE][-+]?[0-9]+)?");
+    regex float_regex("[+-]?\\d+\\.\\d+");
     return regex_match(token, float_regex);
 }
 
 bool isDecimal(const string& token) {
-    regex decimal_regex("[-+]?\\d+");
+    regex decimal_regex("[+-]?\\d+");
     return regex_match(token, decimal_regex);
 }
 
 bool isIdentifier(const string& token) {
-    if (token.empty()) {
-        return false;
-    }
-
-    if (!((token[0] >= 'A' && token[0] <= 'Z') || (token[0] >= 'a' && token[0] <= 'z') || token[0] == '_')) {
-        return false;
-    }
-
-    for (size_t i = 1; i < token.size(); ++i) {
-        if (!((token[i] >= 'A' && token[i] <= 'Z') || (token[i] >= 'a' && token[i] <= 'z') || (token[i] >= '0' && token[i] <= '9') || token[i] == '_')) {
-            return false;
-        }
-    }
-
-    return true;
+    if (token.empty()) return false;
+    if (!isalpha(token[0]) && token[0] != '_') return false;
+    return all_of(token.begin() + 1, token.end(), [](char ch) {
+        return isalnum(ch) || ch == '_';
+    });
 }
 
 bool isStringLiteral(const string& token) {
@@ -74,7 +63,6 @@ bool isKeyword(const string& token) {
         "short", "static", "super", "switch", "synchronized", "this", "throw", "throws", "transient", "true", "try",
         "typeof", "var", "void", "volatile", "while", "with", "yield"
     };
-
     return find(keywords.begin(), keywords.end(), token) != keywords.end();
 }
 
@@ -83,51 +71,33 @@ bool isOperator(const string& token) {
         "==", "!=", "<=", ">=", "&&", "||", "!", "++", "--", "+=", "-=", "*=", "/=", "%=",
         "+", "-", "*", "/", "%", "&", "|", "^", "~", "<<", ">>", "=", "<", ">"
     };
-
     return find(operators.begin(), operators.end(), token) != operators.end();
-}
-
-vector<string> splitDots(const string& token) {
-    vector<string> tokens;
-    size_t start = 0, end = 0;
-
-    while ((end = token.find('.', start)) != string::npos) {
-        tokens.push_back(token.substr(start, end - start));
-        tokens.emplace_back(".");
-        start = end + 1;
-    }
-
-    tokens.push_back(token.substr(start));
-
-    return tokens;
 }
 
 TokenList analyzeToken(const string& curr_token) {
     TokenList result;
 
-    if (isSeparator(curr_token[0])) {
-        result.emplace_back(curr_token, TT_SEPARATOR);
-    } else if (isOperator(curr_token)) {
-        result.emplace_back(curr_token, TT_OPERATOR);
-    } else if (isHexadecimal(curr_token) || isFloatingPoint(curr_token) ||
-               isDecimal(curr_token) || isStringLiteral(curr_token) ||
-               isCharacterLiteral(curr_token)) {
+    if (isHexadecimal(curr_token)) {
         result.emplace_back(curr_token, TT_LITERAL);
-               } else if (isKeyword(curr_token)) {
-                   result.emplace_back(curr_token, TT_KEYWORD);
-               } else if (isIdentifier(curr_token)) {
-                   result.emplace_back(curr_token, TT_IDENTIFIER);
-               } else {
-                   result.emplace_back(curr_token, TT_ERROR);
-               }
+    } else if (isFloatingPoint(curr_token)) {
+        result.emplace_back(curr_token, TT_LITERAL);
+    } else if (isKeyword(curr_token)) {
+        result.emplace_back(curr_token, TT_KEYWORD);
+    } else if (isIdentifier(curr_token)) {
+        result.emplace_back(curr_token, TT_IDENTIFIER);
+    } else if (isDecimal(curr_token)) {
+        result.emplace_back(curr_token, TT_LITERAL);
+    } else {
+        result.emplace_back(curr_token, TT_ERROR);
+    }
 
     return result;
 }
 
+
 TokenList analyzeCode(const string& code) {
     TokenList result;
     istringstream stringBuffer(code);
-
     bool in_string_literal = false;
 
     while (!stringBuffer.eof()) {
@@ -147,21 +117,12 @@ TokenList analyzeCode(const string& code) {
             break;
         }
 
-        if (sym == '/' && stringBuffer.peek() == '*') {
-            continue;
-        }
-
-        if (sym == '/' && stringBuffer.peek() == '/') {
-            continue;
-        }
-
         if (sym == '"' || in_string_literal) {
             in_string_literal = true;
             curr_token = "\"";
             while (in_string_literal && !stringBuffer.eof()) {
                 ch = stringBuffer.get();
                 if (ch == EOF) break;
-
                 sym = static_cast<char>(ch);
                 curr_token += sym;
 
@@ -177,53 +138,37 @@ TokenList analyzeCode(const string& code) {
             continue;
         }
 
-        if (isalnum(sym) || sym == '_' || sym == '.') {
+        if (isalnum(sym) || sym == '_') {
             curr_token += sym;
-            bool started_with_digit = isdigit(sym);
 
-            while (!stringBuffer.eof()) {
-                char peek = static_cast<char>(stringBuffer.peek());
-                if (!isalnum(peek) && peek != '_' && peek != '.') {
-                    break;
-                }
+            while (!stringBuffer.eof() && (isalnum(stringBuffer.peek()) || stringBuffer.peek() == '_' || stringBuffer.peek() == '.')) {
                 ch = stringBuffer.get();
                 if (ch == EOF) break;
                 curr_token += static_cast<char>(ch);
             }
 
-            if (started_with_digit || curr_token[0] == '.') {
-                if (isFloatingPoint(curr_token)) {
-                    result.emplace_back(curr_token, TT_LITERAL);
-                    continue;
-                }
-            }
-
-            string temp;
-            for (char c : curr_token) {
-                if (c == '.') {
-                    if (!temp.empty()) {
-                        TokenList part_result = analyzeToken(temp);
-                        result.insert(result.end(), part_result.begin(), part_result.end());
-                        temp.clear();
-                    }
-                    result.emplace_back(".", TT_SEPARATOR);
-                } else {
-                    temp += c;
-                }
-            }
-            if (!temp.empty()) {
-                TokenList part_result = analyzeToken(temp);
-                result.insert(result.end(), part_result.begin(), part_result.end());
+            if (count(curr_token.begin(), curr_token.end(), '.') > 1) {
+                result.emplace_back(curr_token, TT_ERROR);
+            } else {
+                TokenList tokenized = analyzeToken(curr_token);
+                result.insert(result.end(), tokenized.begin(), tokenized.end());
             }
             continue;
         }
-        if (ispunct(sym)) {
-            curr_token += sym;
-        }
 
-        if (!curr_token.empty()) {
-            TokenList part_result = analyzeToken(curr_token);
-            result.insert(result.end(), part_result.begin(), part_result.end());
+        if (ispunct(sym)) {
+            string two_char_token(1, sym);
+            if (!stringBuffer.eof() && ispunct(stringBuffer.peek())) {
+                two_char_token += static_cast<char>(stringBuffer.get());
+                if (isOperator(two_char_token)) {
+                    result.emplace_back(two_char_token, TT_OPERATOR);
+                    continue;
+                } else {
+                    stringBuffer.putback(two_char_token[1]);
+                    two_char_token = sym;
+                }
+            }
+            result.emplace_back(two_char_token, isOperator(two_char_token) ? TT_OPERATOR : TT_SEPARATOR);
         }
     }
 
@@ -231,29 +176,17 @@ TokenList analyzeCode(const string& code) {
 }
 
 int main() {
-    // string code = "let x = 10.44;\n"
-    //               "/* This is a comment */\n"
-    //               "x += 5;\n"
-    //               "if (x > 15) console.log(\"x is greater\");\n";
+    string code = "5for 5for5 for5 xx====8.9.0--<<-====\n"
+                  "let a = 42;\n"
+                  "const pi = 3.14;\n"
+                  "var hexValue = 0x1A3F;\n"
+                  "function greet(name) {\n"
+                  "greet(\"World\");\n";
 
-    // string code = "let color = 0xFFEE88;\n"
-    //             "let text = \"This is a string\";\n";
+    TokenList tokens = analyzeCode(code);
 
-    string code = "let a = 42;\n"
-                    "const pi = 3.14;\n"
-                    "var hexValue = 0x1A3F;\n"
-                    "\n"
-                    "function greet(name) {\n"
-                    "    console.log(\"Hello, \" + name);\n"
-                    "}\n"
-                    "\n"
-                    "greet(\"World\");\n";
-
-
-    TokenList token_list = analyzeCode(code);
-
-    for (const auto& token : token_list) {
-        cout << "<" << token.first << ", " << token.second << ">" << endl;
+    for (const auto& token : tokens) {
+        cout << token.first << " - " << token.second << endl;
     }
 
     return 0;
